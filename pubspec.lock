@@ -289,7 +289,7 @@ packages:
     source: hosted
     version: "2.3.7"
   geolocator_platform_interface:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: geolocator_platform_interface
       sha256: "009a21c4bc2761e58dccf07c24f219adaebe0ff707abdfd40b0a763d4003fab9"

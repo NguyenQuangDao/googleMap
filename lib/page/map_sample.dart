@@ -9,8 +9,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'package:geocoding/geocoding.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:googlemap_lidar/controller/notification_service.dart';
 import 'package:location/location.dart' as location;
 import 'package:location/location.dart';
 
@@ -34,8 +34,12 @@ class _MapScreenState extends State<MapScreen> {
   String address = 'Bạn';
   Set<Marker> markers = {};
   Map<PolylineId, Polyline> polylines = {};
-  late FirebaseMessaging _firebaseMessaging; // Khai báo _firebaseMessaging
-// Khởi tạo FirebaseMessaging
+  Timer? _timer; // Biến để lưu trữ timer
+  @override
+  void initState() {
+    super.initState();
+    _getCurrentLocation(); // Lấy vị trí hiện tại
+  }
 
   Completer<GoogleMapController> _mapController =
       Completer<GoogleMapController>();
@@ -51,28 +55,18 @@ class _MapScreenState extends State<MapScreen> {
   // create circle
   void _onMapCreated(Completer<GoogleMapController> controller) {
     _mapController = controller;
-    LocationData? _currentLocation;
+    _listenLocationChanges();
 
     setState(() {
       circle = Circle(
         circleId: const CircleId('circle_id'),
         center: const LatLng(21.075526, 105.777397),
-        radius: 100,
+        radius: 200,
         fillColor: Colors.blue.withOpacity(0.3),
         strokeWidth: 2,
         strokeColor: Colors.blue,
       );
     });
-    void initState() {
-      super.initState();
-      _locationController.onLocationChanged
-          .listen((LocationData currentLocation) {
-        setState(() {
-          _currentLocation = myLocation as location.LocationData?;
-        });
-        _checkAndSendNotification(currentLocation);
-      });
-    }
   }
 
   // setMarker
@@ -186,14 +180,31 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
+  LatLng _currentPosition = LatLng(0, 0); // Vị trí mặc định
+  void _getCurrentLocation() async {
+    final location = await Geolocator.getCurrentPosition();
+    setState(() {
+      _currentPosition = LatLng(location.latitude, location.longitude);
+    });
+    print('${location.latitude}, ${location.longitude}');
+  }
+
+  Future<void> _listenLocationChanges() async {
+    var distance =
+        calculateDistance(_currentPosition, LatLng(21.075526, 105.777397));
+    if (distance <= 200) {
+      showSimpleToastErr();
+    }
+  }
+
+  // ignore: non_constant_identifier_names
   GoogleMap GooglemapLidar() {
     return GoogleMap(
-      onMapCreated: ((GoogleMapController controller) => {
-            _onMapCreated(Completer<GoogleMapController>()),
-          }),
+      onMapCreated: ((GoogleMapController controller) =>
+          {_onMapCreated(Completer<GoogleMapController>())}),
       initialCameraPosition: CameraPosition(
         target: myLocation,
-        zoom: 13.0,
+        zoom: 16.0,
       ),
       markers: {
         Marker(
@@ -214,13 +225,35 @@ class _MapScreenState extends State<MapScreen> {
       // ignore: unnecessary_null_comparison
       circles: circle != null ? {circle} : {},
       onTap: (value) {
-        setMarker(value);
-        // print(calculateDistance(
-        //     LatLng(21.072039, 105.773891), LatLng(21.072150, 105.774512)));
+        // setMarker(value);
+      },
+      onCameraMove: (CameraPosition position) {
+        setState(() {
+          _currentPosition = position.target;
+        });
+        getLocationUpdates();
+
+        _runPeriodicTask();
       },
     );
   }
 
+  void _runPeriodicTask() {
+    // _runPeriodicTask();
+    if (_timer != null) {
+      _timer!.cancel(); // Hủy timer hiện tại
+    }
+
+    _timer = Timer.periodic(const Duration(seconds: 2), (timer) {
+      _getCurrentLocation();
+      _listenLocationChanges();
+      if (kDebugMode) {
+        print(calculateDistance(_currentPosition, locationGo));
+      }
+    });
+  }
+
+////////////////////
   Future<List<LatLng>> getPolylinePoints() async {
     List<LatLng> polylineCoordinates = [];
     PolylinePoints polylinePoints = PolylinePoints();
@@ -243,7 +276,7 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   void generatePolyLineFromPoints(List<LatLng> polylineCoordinates) async {
-    PolylineId id = PolylineId("poly");
+    PolylineId id = const PolylineId("poly");
     Polyline polyline = Polyline(
         polylineId: id,
         color: Colors.black,
@@ -260,10 +293,7 @@ class _MapScreenState extends State<MapScreen> {
       right: 60.0,
       child: FloatingActionButton(
         onPressed: () {
-          setState(() {
-            myLocation = const LatLng(21.072039, 105.773891);
-            resetMarker();
-          });
+          _timer!.cancel();
         },
         child: const Icon(Icons.location_searching),
       ),
@@ -283,48 +313,13 @@ class _MapScreenState extends State<MapScreen> {
                   }),
             },
           );
-          resetMarker();
+          // resetMarker();
+          _runPeriodicTask();
         },
         child: const Icon(Icons.running_with_errors),
       ),
     );
   }
-
-  @override
-  void initState() {
-    super.initState();
-    _firebaseMessaging =
-        FirebaseMessaging.instance; // Khởi tạo _firebaseMessaging
-    getLocationUpdates();
-  }
-
-  Future<void> _checkAndSendNotification(
-      location.LocationData currentLocation) async {
-    double initialDistance = calculateDistance(circle.center, myLocation);
-    // Nếu khoảng cách ban đầu nhỏ hơn hoặc bằng một ngưỡng cụ thể, gửi thông báo
-
-    print(initialDistance);
-    if (initialDistance <= 100) {
-      FirebaseMessaging.onBackgroundMessage(
-          _firebaseMessagingBackgroundHandler);
-      requestNotifationPermission();
-      onMessageNotification();
-      // _sendNotification();
-    }
-  }
-
-// Hàm gửi thông báo
-//   void _sendNotification() {
-//     // Gửi thông báo đến ứng dụng của người dùng
-//     FirebaseMessaging.instance.send(
-//       RemoteMessage(
-//         data: {
-//           'title': 'Thông báo',
-//           'body': 'Bạn đã đến gần vùng quan trọng!',
-//         },
-//       ),
-//     );
-//   }
 }
 
 // tính khoảng cách từ vị trí đến tâm
@@ -343,4 +338,28 @@ double calculateDistance(LatLng point1, LatLng point2) {
   double c = 2 * atan2(sqrt(a), sqrt(1 - a));
   double distance = earthRadius * c;
   return distance;
+}
+
+void showSimpleToastErr() {
+  Fluttertoast.showToast(
+    msg: "Bạn đang trong vùng nguy hiểm!!",
+    toastLength: Toast.LENGTH_SHORT,
+    gravity: ToastGravity.TOP,
+    backgroundColor: Colors.red,
+    textColor: Colors.white,
+    timeInSecForIosWeb: 5,
+    fontSize: 20,
+  );
+}
+
+void showSimpleToast() {
+  Fluttertoast.showToast(
+    msg: "Bạn đã thoát khỏi vùng nguy hiểm!!",
+    toastLength: Toast.LENGTH_SHORT,
+    gravity: ToastGravity.TOP,
+    backgroundColor: Colors.blue,
+    textColor: Colors.white,
+    timeInSecForIosWeb: 1,
+    fontSize: 20,
+  );
 }
