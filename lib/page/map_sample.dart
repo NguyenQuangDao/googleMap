@@ -1,18 +1,17 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:math' show atan2, cos, pow, sin, sqrt;
 
 // import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:location/location.dart' as location;
-import 'package:location/location.dart';
+import 'package:http/http.dart' as http;
 
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -28,51 +27,74 @@ class MapScreen extends StatefulWidget {
 }
 
 class _MapScreenState extends State<MapScreen> {
-  final location.Location _locationController = location.Location();
-  LatLng myLocation = const LatLng(21.0721, 105.7739);
-  static const LatLng locationGo = LatLng(21.0799, 105.7782);
+  LatLng myLocation = const LatLng(38.40507560, -122.59521022);
   String address = 'Bạn';
   Set<Marker> markers = {};
   Map<PolylineId, Polyline> polylines = {};
-  Timer? _timer; // Biến để lưu trữ timer
+  // Timer? _timer; // Biến để lưu trữ timer
+  late Polyline _kPolyline;
   @override
   void initState() {
     super.initState();
     _getCurrentLocation(); // Lấy vị trí hiện tại
+    _kPolyline = Polyline(
+      polylineId: const PolylineId('kPolyline'),
+      points: [
+        LatLng(38.40507560, -122.59521022),
+        const LatLng(38.40507560, -122.59221022)
+      ],
+      width: 5,
+      color: Colors.blue,
+    );
   }
 
+  List<LatLng> polylineCoordinates = [
+    LatLng(38.40507560, -122.59521022),
+    LatLng(38.40407560, -122.54521022),
+    LatLng(38.40537560, -122.51521022)
+  ];
+  PolylinePoints polylinePoints = PolylinePoints();
+  String googleAPiKey = "YOUR_GOOGLE_API_KEY";
   Completer<GoogleMapController> _mapController =
       Completer<GoogleMapController>();
   // circle
-  Circle circle = const Circle(
-    circleId: CircleId('circle_id'), // ID của hình tròn
-    center: LatLng(0, 0), // Vị trí trung tâm của hình tròn (giá trị mặc định)
-    radius: 0, // Bán kính của hình tròn (giá trị mặc định)
-    fillColor: Colors.blue, // Màu nền của hình tròn
-    strokeWidth: 2, // Độ dày của đường viền
-    strokeColor: Colors.blue, // Màu của đường viền
-  );
+  Set<Circle> circles = {};
+  Future<void> fetchCoordinates() async {
+    final response = await http.get(
+        Uri.parse('https://6411ea8ff9fe8122ae17b101.mockapi.io/vi-pham-dien'));
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      // final data = dataTest;
+      // print(data);
+      setState(() {
+        circles = Set.from(data.map<Circle>((item) {
+          return Circle(
+            circleId: CircleId(item['id'].toString()),
+            center: LatLng(double.parse(item['y'].toString()),
+                double.parse(item['x'].toString())),
+            radius: 10,
+            fillColor: Colors.yellow,
+            strokeColor: Colors.yellow,
+            strokeWidth: 2,
+          );
+        }));
+      });
+    } else {
+      throw Exception('Failed to load coordinates');
+    }
+  }
+
   // create circle
   void _onMapCreated(Completer<GoogleMapController> controller) {
     _mapController = controller;
-    _listenLocationChanges();
-
-    setState(() {
-      circle = Circle(
-        circleId: const CircleId('circle_id'),
-        center: const LatLng(21.075526, 105.777397),
-        radius: 200,
-        fillColor: Colors.blue.withOpacity(0.3),
-        strokeWidth: 2,
-        strokeColor: Colors.blue,
-      );
-    });
+    fetchCoordinates();
   }
 
   // setMarker
 
   setMarker(LatLng value) async {
     myLocation = value;
+
     List<Placemark> result =
         await placemarkFromCoordinates(value.latitude, value.longitude);
     if (result.isNotEmpty) {
@@ -80,47 +102,73 @@ class _MapScreenState extends State<MapScreen> {
           '${result[0].name}, ${result[0].locality} ${result[0].administrativeArea}';
     }
     setState(() {
-      markers.add(
-        Marker(
-          infoWindow: InfoWindow(title: address),
-          position: myLocation,
-          draggable: true,
-          markerId:
-              MarkerId(value.toString()), // Change markerId to a unique value
-          onDragEnd: (value) {
-            setMarker(value);
-          },
-        ),
+      // Update the polyline with the new location
+      _kPolyline = Polyline(
+        polylineId: const PolylineId('kPolyline'),
+        points: [myLocation, const LatLng(38.40507560, -122.59221022)],
+        width: 5,
+        color: Colors.blue,
       );
+      Marker? existingMarker;
+
+      // Kiểm tra xem có marker nào không
+      if (markers.isNotEmpty) {
+        existingMarker = markers.firstWhere(
+          (marker) => marker.markerId == const MarkerId('1'),
+          orElse: () =>
+              markers.first, // Trả về marker đầu tiên nếu không tìm thấy
+        );
+
+        // Cập nhật vị trí của marker hiện có
+        markers.remove(existingMarker);
+        markers.add(
+          existingMarker.copyWith(
+            positionParam: value,
+          ),
+        );
+      } else {
+        // Nếu không có marker, thêm một marker mới
+        markers.add(
+          Marker(
+            infoWindow: InfoWindow(title: address),
+            position: myLocation,
+            draggable: true,
+            markerId: const MarkerId('1'),
+            onDragEnd: (value) {
+              setMarker(value);
+            },
+          ),
+        );
+      }
     });
     Fluttertoast.showToast(msg: '📍 $address');
   }
 
   // resetMarker
-  void resetMarker() async {
-    List<Placemark> result = await placemarkFromCoordinates(
-        myLocation.latitude, myLocation.longitude);
-    if (result.isNotEmpty) {
-      address =
-          '${result[0].name}, ${result[0].locality} ${result[0].administrativeArea}';
-    }
-    setState(() {
-      // Cập nhật lại marker
-      markers.clear();
-      markers.add(
-        Marker(
-          infoWindow: InfoWindow(title: address),
-          position: myLocation,
-          draggable: true,
-          markerId: MarkerId(
-              myLocation.toString()), // Change markerId to a unique value
-          onDragEnd: (value) {
-            setMarker(value);
-          },
-        ),
-      );
-    });
-  }
+  // void resetMarker() async {
+  //   List<Placemark> result = await placemarkFromCoordinates(
+  //       myLocation.latitude, myLocation.longitude);
+  //   if (result.isNotEmpty) {
+  //     address =
+  //         '${result[0].name}, ${result[0].locality} ${result[0].administrativeArea}';
+  //   }
+  //   setState(() {
+  //     // Cập nhật lại marker
+  //     markers.clear();
+  //     markers.add(
+  //       Marker(
+  //         infoWindow: InfoWindow(title: address),
+  //         position: myLocation,
+  //         draggable: true,
+  //         markerId: MarkerId(
+  //             myLocation.toString()), // Change markerId to a unique value
+  //         onDragEnd: (value) {
+  //           setMarker(value);
+  //         },
+  //       ),
+  //     );
+  //   });
+  // }
 
   //  CameraPosition
   Future<void> cameraToPosition(LatLng pos) async {
@@ -131,39 +179,25 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
-  // getLocationUpdates
-  Future<void> getLocationUpdates() async {
-    bool _serviceEnabled;
-    PermissionStatus _permissionGranted;
+// _kPolyline
+  // static final Polyline _kPolyline = Polyline(
+  //   polylineId: const PolylineId('kPolyline'),
+  //   points: [
+  //     LatLng(38.40507560, -122.59521022),
+  //     const LatLng(38.40507560, -122.59221022)
+  //   ],
+  //   width: 5,
+  //   color: Colors.blue,
+  // );
 
-    _serviceEnabled = await _locationController.serviceEnabled();
-    if (_serviceEnabled) {
-      _serviceEnabled = await _locationController.requestService();
-    } else {
-      return;
-    }
-
-    _permissionGranted = await _locationController.hasPermission();
-    if (_permissionGranted == PermissionStatus.denied) {
-      _permissionGranted = await _locationController.requestPermission();
-      if (_permissionGranted != PermissionStatus.granted) {
-        return;
-      }
-    }
-
-    _locationController.onLocationChanged
-        .listen((LocationData currentLocation) {
-      if (currentLocation.latitude != null &&
-          currentLocation.longitude != null) {
-        setState(() {
-          myLocation =
-              LatLng(currentLocation.latitude!, currentLocation.longitude!);
-          cameraToPosition(myLocation);
-        });
-      }
-    });
-  }
-
+  // kPolygon
+  // static const Polygon _kPolygon = Polygon(
+  //   polygonId: PolygonId('_kPolygon'),
+  //   points: [
+  //     LatLng(38.40507560, -122.59521022),
+  //     LatLng(38.40507560, -122.59221022)
+  //   ],
+  // );
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -180,23 +214,6 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
-  LatLng _currentPosition = LatLng(0, 0); // Vị trí mặc định
-  void _getCurrentLocation() async {
-    final location = await Geolocator.getCurrentPosition();
-    setState(() {
-      _currentPosition = LatLng(location.latitude, location.longitude);
-    });
-    print('${location.latitude}, ${location.longitude}');
-  }
-
-  Future<void> _listenLocationChanges() async {
-    var distance =
-        calculateDistance(_currentPosition, LatLng(21.075526, 105.777397));
-    if (distance <= 200) {
-      showSimpleToastErr();
-    }
-  }
-
   // ignore: non_constant_identifier_names
   GoogleMap GooglemapLidar() {
     return GoogleMap(
@@ -206,94 +223,79 @@ class _MapScreenState extends State<MapScreen> {
         target: myLocation,
         zoom: 16.0,
       ),
+      mapType: MapType.satellite,
       markers: {
         Marker(
-            infoWindow: InfoWindow(title: address),
-            position: myLocation,
-            draggable: true,
-            markerId: const MarkerId('1'),
-            onDragEnd: (value) {
-              setMarker(value);
-            }),
-        Marker(
-            infoWindow: InfoWindow(title: address),
-            position: locationGo,
-            draggable: true,
-            markerId: const MarkerId('2'),
-            onDragEnd: (value) {}),
+          infoWindow: InfoWindow(title: address),
+          position: myLocation,
+          draggable: true,
+          markerId: const MarkerId('1'),
+        ),
       },
-      // ignore: unnecessary_null_comparison
-      circles: circle != null ? {circle} : {},
+      circles: circles,
       onTap: (value) {
-        // setMarker(value);
+        setMarker(value);
       },
-      onCameraMove: (CameraPosition position) {
-        setState(() {
-          _currentPosition = position.target;
-        });
-        getLocationUpdates();
-
-        _runPeriodicTask();
-      },
+      polylines: {_kPolyline},
+      // polygons: {_kPolygon},
     );
   }
 
-  void _runPeriodicTask() {
-    // _runPeriodicTask();
-    if (_timer != null) {
-      _timer!.cancel(); // Hủy timer hiện tại
-    }
+  // _getPolyline() async {
+  //   PolylineResult result = await polylinePoints.getRouteBetweenCoordinates(
+  //       googleAPiKey,
+  //       const LatLng(38.40507560, -122.59521022) as PointLatLng,
+  //       myLocation as PointLatLng,
+  //       travelMode: TravelMode.driving,
+  //       wayPoints: [
+  //         PolylineWayPoint(
+  //           location: "Sabo, Yaba Lagos Nigeria",
+  //         ),
+  //       ]);
+  //   if (result.points.isNotEmpty) {
+  //     result.points.forEach((PointLatLng point) {
+  //       polylineCoordinates.add(LatLng(point.latitude, point.longitude));
+  //     });
+  //   }
+  //   _addPolyLine();
+  // }
 
-    _timer = Timer.periodic(const Duration(seconds: 2), (timer) {
-      _getCurrentLocation();
-      _listenLocationChanges();
-      if (kDebugMode) {
-        print(calculateDistance(_currentPosition, locationGo));
-      }
-    });
-  }
+  // _addPolyLine() {
+  //   PolylineId id = PolylineId("poly");
+  //   Polyline polyline = Polyline(
+  //     polylineId: id,
+  //     visible: true,
+  //     color: Colors.blue.withOpacity(0.5),
+  //     points: polylineCoordinates,
+  //   );
+  //   polylines[id] = polyline;
+  //   setState(() {});
+  // }
 
-////////////////////
-  Future<List<LatLng>> getPolylinePoints() async {
-    List<LatLng> polylineCoordinates = [];
-    PolylinePoints polylinePoints = PolylinePoints();
-    PolylineResult result = await polylinePoints.getRouteBetweenCoordinates(
-      'AIzaSyAGZs6yjzRaaATGnzgkDUg2QQc21gYuG1g',
-      PointLatLng(myLocation.latitude, myLocation.longitude),
-      PointLatLng(locationGo.latitude, locationGo.longitude),
-      travelMode: TravelMode.driving,
-    );
-    if (result.points.isNotEmpty) {
-      for (var point in result.points) {
-        polylineCoordinates.add(LatLng(point.latitude, point.longitude));
-      }
-    } else {
-      if (kDebugMode) {
-        print(result.errorMessage);
-      }
-    }
-    return polylineCoordinates;
-  }
-
-  void generatePolyLineFromPoints(List<LatLng> polylineCoordinates) async {
-    PolylineId id = const PolylineId("poly");
-    Polyline polyline = Polyline(
-        polylineId: id,
-        color: Colors.black,
-        points: polylineCoordinates,
-        width: 8);
+  LatLng _currentPosition = LatLng(0, 0); // Vị trí mặc định
+  void _getCurrentLocation() async {
+    final location = await Geolocator.getCurrentPosition();
     setState(() {
-      polylines[id] = polyline;
+      _currentPosition = LatLng(location.latitude, location.longitude);
     });
+    // print('${location.latitude}, ${location.longitude}');
   }
+
+  // Future<void> _listenLocationChanges() async {
+  //   var distance =
+  //       calculateDistance(_currentPosition, LatLng(21.075526, 105.777397));
+  //   if (distance <= 200) {
+  //     showSimpleToastErr();
+  //   }
+  // }
 
   Positioned currentLocation() {
     return Positioned(
       bottom: 20.0,
-      right: 60.0,
+      right: 65.0,
       child: FloatingActionButton(
         onPressed: () {
-          _timer!.cancel();
+          setMarker(const LatLng(38.40507560, -122.59521022));
         },
         child: const Icon(Icons.location_searching),
       ),
@@ -306,15 +308,7 @@ class _MapScreenState extends State<MapScreen> {
       right: 140.0,
       child: FloatingActionButton(
         onPressed: () {
-          getLocationUpdates().then(
-            (_) => {
-              getPolylinePoints().then((coordinates) => {
-                    generatePolyLineFromPoints(coordinates),
-                  }),
-            },
-          );
-          // resetMarker();
-          _runPeriodicTask();
+          // _getPolyline();
         },
         child: const Icon(Icons.running_with_errors),
       ),
