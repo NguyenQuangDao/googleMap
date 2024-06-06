@@ -321,7 +321,7 @@ void showSimpleToast(LatLng location) {
 }
 
 // DropdownMapType
-const List<String> list = <String>['Normal', 'Satellite', 'Traffic'];
+const List<String> list = <String>['Normal', 'Satellite', 'Terrain', 'Hybrid'];
 
 class DropdownMapType extends StatefulWidget {
   const DropdownMapType({Key? key}) : super(key: key);
@@ -414,9 +414,14 @@ class _DropdownMapTypeState extends State<DropdownMapType> {
           _MapScreenState.mapType = MapType.satellite;
         });
         break;
-      case 'Traffic':
+      case 'Terrain':
         setState(() {
           _MapScreenState.mapType = MapType.terrain;
+        });
+        break;
+      case 'Hybrid':
+        setState(() {
+          _MapScreenState.mapType = MapType.hybrid;
         });
         break;
     }
