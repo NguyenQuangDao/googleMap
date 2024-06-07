@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:math' show atan2, cos, pow, sin, sqrt;
 
@@ -7,7 +8,7 @@ import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:googlemap_lidar/dataTest/data_test.dart';
+import 'package:http/http.dart' as http;
 import 'package:location/location.dart' as loc;
 import 'package:location/location.dart';
 
@@ -29,11 +30,14 @@ class _MapScreenState extends State<MapScreen> {
   final locationController = loc.Location();
   LatLng? currentPosition;
   Map<PolylineId, Polyline> polylines = {};
+  Set<Circle> circles = {};
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance
         .addPostFrameCallback((_) async => await initializeMap());
+    fetchCoordinates();
   }
 
   // create circle
@@ -46,56 +50,59 @@ class _MapScreenState extends State<MapScreen> {
   Completer<GoogleMapController> _mapController =
       Completer<GoogleMapController>();
   // circle
-  Set<Circle> circles = {};
-  Future<void> fetchCoordinates() async {
-    const data = dataTest;
-    // print(data);
-    setState(() {
-      Color getFillColor(Map<String, dynamic> item) {
-        // Kiểm tra nếu trường "color" tồn tại và có giá trị
-        if (item.containsKey('color') && item['color'] != null) {
-          // Trả về giá trị fillColor tương ứng với màu được chỉ định
-          return Colors.red.withOpacity(0.5);
-        } else {
-          // Trả về giá trị mặc định nếu không có trường color hoặc nếu trường color không có giá trị
-          return Colors.yellow.withOpacity(0.5);
-        }
-      }
 
-      circles = Set.from(data.map<Circle>((item) {
-        return Circle(
-          circleId: CircleId(item['id'].toString()),
-          center: LatLng(double.parse(item['y'].toString()),
-              double.parse(item['x'].toString())),
-          radius: getFillColor(item) == Colors.red.withOpacity(0.5) ? 3 : 0.5,
-          fillColor: getFillColor(item),
-          strokeColor: getFillColor(item),
-          strokeWidth: 2,
-        );
-      }));
-    });
-    // final response = await http.get(
-    //     Uri.parse('https://6411ea8ff9fe8122ae17b101.mockapi.io/vi-pham-dien'));
-    // if (response.statusCode == 200) {
-    //   // final data = jsonDecode(response.body);
-    //   const data = dataTest;
-    //   // print(data);
-    //   setState(() {
-    //     circles = Set.from(data.map<Circle>((item) {
-    //       return Circle(
-    //         circleId: CircleId(item['id'].toString()),
-    //         center: LatLng(double.parse(item['y'].toString()),
-    //             double.parse(item['x'].toString())),
-    //         radius: 0.5,
-    //         fillColor: Colors.yellow.withOpacity(0.5),
-    //         strokeColor: Colors.yellow.withOpacity(0.5),
-    //         strokeWidth: 2,
-    //       );
-    //     }));
-    //   });
-    // } else {
-    //   throw Exception('Failed to load coordinates');
-    // }
+  Future<void> fetchCoordinates() async {
+    // const data = dataTest;
+    // setState(() {
+    //   Color getFillColor(Map<String, dynamic> item) {
+    //     if (item.containsKey('color') && item['color'] != null) {
+    //       return Colors.red.withOpacity(0.5);
+    //     } else {
+    //       return Colors.yellow.withOpacity(0.5);
+    //     }
+    //   }
+
+    //   circles = Set.from(data.map<Circle>((item) {
+    //     return Circle(
+    //       circleId: CircleId(item['id'].toString()),
+    //       center: LatLng(double.parse(item['y'].toString()),
+    //           double.parse(item['x'].toString())),
+    //       radius: getFillColor(item) == Colors.red.withOpacity(0.5) ? 3 : 0.5,
+    //       fillColor: getFillColor(item),
+    //       strokeColor: getFillColor(item),
+    //       strokeWidth: 2,
+    //     );
+    //   }));
+    // });
+    final response = await http.get(
+        Uri.parse('https://6411ea8ff9fe8122ae17b101.mockapi.io/vi-pham-dien'));
+    print('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaâ ++ ${response.statusCode}');
+    final data = jsonDecode(response.body);
+    if (response.statusCode == 200) {
+      print(data);
+      setState(() {
+        Color getFillColor(Map<String, dynamic> item) {
+          if (item.containsKey('color') && item['color'] != null) {
+            return Colors.red.withOpacity(0.5);
+          } else {
+            return Colors.yellow.withOpacity(0.5);
+          }
+        }
+
+        circles = Set.from(data.map<Circle>((item) {
+          return Circle(
+            circleId: CircleId(item['id'].toString()),
+            center: LatLng(item['y'], item['x']),
+            radius: getFillColor(item) == Colors.red.withOpacity(0.5) ? 3 : 0.5,
+            fillColor: getFillColor(item),
+            strokeColor: getFillColor(item),
+            strokeWidth: 2,
+          );
+        }));
+      });
+    } else {
+      throw Exception('Failed to load coordinates');
+    }
   }
 
   // setMarker
@@ -166,7 +173,7 @@ class _MapScreenState extends State<MapScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Map Lidar'),
+        title: const Text('Đảm bảo hành lang an toàn điện'),
         backgroundColor: Colors.blue,
       ),
       body: Stack(children: [
@@ -196,7 +203,7 @@ class _MapScreenState extends State<MapScreen> {
           markerId: const MarkerId('1'),
         ),
       },
-      circles: circles,
+      circles: Set<Circle>.of(circles),
       onTap: (value) {
         setMarker(value);
         print(value);
@@ -402,7 +409,6 @@ class _DropdownMapTypeState extends State<DropdownMapType> {
   }
 
   void handleItemClick(String? value) {
-    print('map typeeeeeee');
     switch (value) {
       case 'Normal':
         setState(() {

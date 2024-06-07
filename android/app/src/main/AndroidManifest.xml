@@ -7,7 +7,7 @@
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>  <!-- FOR ANDROID 13  -->
     <application
-        android:label="googlemap_lidar"
+        android:label="Hành lang an toàn điện"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:networkSecurityConfig="@xml/network_security_config"
